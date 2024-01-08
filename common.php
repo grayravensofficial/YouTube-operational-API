@@ -95,10 +95,10 @@
         return $result;
     }
 
-    function dieWithJsonMessage($message)
+    function dieWithJsonMessage($message, $code = 400)
     {
         $error = [
-            'code' => 400,
+            'code' => $code,
             'message' => $message
         ];
         $result = [
@@ -109,7 +109,7 @@
 
     function detectedAsSendingUnusualTraffic()
     {
-        dieWithJsonMessage('YouTube has detected unusual traffic from this YouTube operational API instance. Please try your request again later or see alternatives at https://github.com/Benjamin-Loison/YouTube-operational-API/issues/11');
+        dieWithJsonMessage('YouTube has detected unusual traffic from this YouTube operational API instance. Please try your request again later or see alternatives at https://github.com/Benjamin-Loison/YouTube-operational-API/issues/11', 403);
     }
 
     function getJSON($url, $opts = [], $verifyTrafficIfForbidden = true)
@@ -365,13 +365,12 @@
             ];
         }
 
-        $likes = intval(array_key_exists('voteCount', $common) ? $common['voteCount']['simpleText'] : 0);
+        $likes = getIntValue(array_key_exists('voteCount', $common) ? $common['voteCount']['simpleText'] : 0);
 
         // Retrieving comments when using `community?part=snippet` requires another HTTPS request to `browse` YouTube UI endpoint.
         // sharedPosts do not have 'actionButtons' so this next line will end up defaulting to 0 $comments
         $commentsPath = 'actionButtons/commentActionButtonsRenderer/replyButton/buttonRenderer';
         $commentsCommon = doesPathExist($common, $commentsPath) ? getValue($common, $commentsPath) : $common;
-        $commentsCount = array_key_exists('text', $commentsCommon) ? intval($commentsCommon['text']['simpleText']) : 0;
 
         $post = [
             'id' => $id,
@@ -379,13 +378,17 @@
             'date' => $date,
             'contentText' => $contentText,
             'likes' => $likes,
-            'commentsCount' => $commentsCount,
             'videoId' => $videoId,
             'images' => $images,
             'poll' => $poll,
             'edited' => $edited,
             'sharedPostId' => $sharedPostId,
         ];
+        if(array_key_exists('text', $commentsCommon))
+        {
+            $commentsCount = getIntValue($commentsCommon['text']['simpleText']);
+            $post['commentsCount'] = $commentsCount;
+        }
         return $post;
     }
 
