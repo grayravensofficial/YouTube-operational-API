@@ -2,9 +2,11 @@
 
     header('Content-Type: application/json; charset=UTF-8');
 
-    // should make the unit tests not based on my personal channels
-    // Stack Overflow source: https://stackoverflow.com/a/70961128
-    $playlistItemsTests = [['snippet&playlistId=PLKAl8tt2R8OfMnDRnEABZ2M-tI7yJYvl1', 'items/0/snippet/publishedAt', '1520963713']]; // not precise...
+    $playlistItemsTests = [
+        // not precise...
+        // Preferably have only more than 200 different videos but that I own would be more robust
+        //['part=snippet&playlistId=PLKAl8tt2R8OfMnDRnEABZ2M-tI7yJYvl1', 'items/0/snippet/publishedAt', 1520963713]
+    ];
 
 include_once 'common.php';
 
@@ -25,7 +27,7 @@ if (isset($_GET['part'], $_GET['playlistId'])) {
         }
     }
     echo getAPI($playlistId, $continuationToken);
-} else {
+} else if(!test()) {
     dieWithJsonMessage('Required parameters not provided');
 }
 
@@ -46,7 +48,7 @@ function getAPI($playlistId, $continuationToken)
             'continuation' => $continuationToken
         ];
         $http['method'] = 'POST';
-        $http['header'] = 'Content-Type: application/json';
+        $http['header'] = ['Content-Type: application/json'];
         $http['content'] = json_encode($rawData);
     } else {
         $url = "https://www.youtube.com/playlist?list=$playlistId";
@@ -57,53 +59,21 @@ function getAPI($playlistId, $continuationToken)
         'http' => $http
     ];
 
-    $res = getRemote($url, $httpOptions);
-
-    if (!$continuationTokenProvided) {
-        $res = getJSONStringFromHTML($res);
+    if ($continuationTokenProvided) {
+        $result = getJSON($url, $httpOptions);
+    } else {
+        $result = getJSONFromHTML($url, $httpOptions);
     }
 
-    $result = json_decode($res, true);
     $answerItems = [];
-    $items = $continuationTokenProvided ? $result['onResponseReceivedActions'][0]['appendContinuationItemsAction']['continuationItems'] : $result['contents']['twoColumnBrowseResultsRenderer']['tabs'][0]['tabRenderer']['content']['sectionListRenderer']['contents'][0]['itemSectionRenderer']['contents'][0]['playlistVideoListRenderer']['contents'];
+    $items = $continuationTokenProvided ? getContinuationItems($result) : getTabs($result)[0]['tabRenderer']['content']['sectionListRenderer']['contents'][0]['itemSectionRenderer']['contents'][0]['playlistVideoListRenderer']['contents'];
     $itemsCount = count($items);
     for ($itemsIndex = 0; $itemsIndex < $itemsCount - 1; $itemsIndex++) {
         $item = $items[$itemsIndex];
         $playlistVideoRenderer = $item['playlistVideoRenderer'];
         $videoId = $playlistVideoRenderer['videoId'];
         $title = $playlistVideoRenderer['title']['runs'][0]['text'];
-        $publishedAtRaw = $playlistVideoRenderer['videoInfo']['runs'][2]['text'];
-
-        $publishedAtStr = str_replace('ago', '', $publishedAtRaw);
-        $publishedAtStr = str_replace('seconds', '* 1 +', $publishedAtStr);
-        $publishedAtStr = str_replace('second', '* 1 +', $publishedAtStr);
-        $publishedAtStr = str_replace('minutes', '* 60 +', $publishedAtStr);
-        $publishedAtStr = str_replace('minute', '* 60 +', $publishedAtStr);
-        $publishedAtStr = str_replace('hours', '* 3600 +', $publishedAtStr);
-        $publishedAtStr = str_replace('hour', '* 3600 +', $publishedAtStr);
-        $publishedAtStr = str_replace('days', '* 86400 +', $publishedAtStr);
-        $publishedAtStr = str_replace('day', '* 86400 +', $publishedAtStr);
-        $publishedAtStr = str_replace('weeks', '* 604800 +', $publishedAtStr);
-        $publishedAtStr = str_replace('week', '* 604800 +', $publishedAtStr);
-        $publishedAtStr = str_replace('months', '* 2592000 +', $publishedAtStr); // not sure
-        $publishedAtStr = str_replace('month', '* 2592000 +', $publishedAtStr);
-        $publishedAtStr = str_replace('years', '* 31104000 +', $publishedAtStr); // not sure
-        $publishedAtStr = str_replace('year', '* 31104000 +', $publishedAtStr);
-        // To remove last ` +`.
-        $publishedAtStr = substr($publishedAtStr, 0, strlen($publishedAtStr) - 2);
-        $publishedAtStr = str_replace(' ', '', $publishedAtStr); // "security"
-        $publishedAtStr = str_replace(',', '', $publishedAtStr);
-        $publishedAtStrLen = strlen($publishedAtStr);
-        // "security"
-        for ($publishedAtStrIndex = $publishedAtStrLen - 1; $publishedAtStrIndex >= 0; $publishedAtStrIndex--) {
-            $publishedAtChar = $publishedAtStr[$publishedAtStrIndex];
-            if (!str_contains('+*0123456789', $publishedAtChar)) {
-                $publishedAtStr = substr($publishedAtStr, $publishedAtStrIndex + 1, $publishedAtStrLen - $publishedAtStrIndex - 1);
-                break;
-            }
-        }
-        $publishedAt = time() - eval("return $publishedAtStr;");
-        // the time is not perfectly accurate this way
+        $publishedAt = getPublishedAt($playlistVideoRenderer['videoInfo']['runs'][2]['text']);
         $thumbnails = $playlistVideoRenderer['thumbnail']['thumbnails'];
         $answerItem = [
             'kind' => 'youtube#playlistItem',

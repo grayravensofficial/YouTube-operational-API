@@ -6,7 +6,10 @@
 
     include_once 'common.php';
 
-    $realOptions = ['snippet', 'participants'];
+    $realOptions = [
+        'snippet',
+        'participants',
+    ];
 
     foreach ($realOptions as $realOption) {
         $options[$realOption] = false;
@@ -28,10 +31,8 @@
         }
 
         $ids = $_GET['id'];
-        $realIds = str_contains($ids, ',') ? explode(',', $ids, 50) : [$ids];
-        if (count($realIds) == 0) {
-            dieWithJsonMessage('Invalid id');
-        }
+        $realIds = explode(',', $ids);
+        verifyMultipleIds($realIds);
         foreach ($realIds as $realId) {
             if ((!isVideoId($realId))) {
                 dieWithJsonMessage('Invalid id');
@@ -39,7 +40,7 @@
         }
 
         echo getAPI($realIds);
-    } else {
+    } else if(!test()) {
         dieWithJsonMessage('Required parameters not provided');
     }
 
@@ -65,7 +66,7 @@
 
         $opts = [
             'http' => [
-                'header' => 'Content-Type: application/json',
+                'header' => ['Content-Type: application/json'],
                 'method'  => 'POST',
                 'content' => json_encode($rawData),
             ]
@@ -105,7 +106,7 @@
             $participants = [];
             $opts = [
                 'http' => [
-                    'header' => 'User-Agent: ' . USER_AGENT,
+                    'header' => ['User-Agent: ' . USER_AGENT],
                 ]
             ];
 

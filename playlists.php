@@ -2,11 +2,17 @@
 
     header('Content-Type: application/json; charset=UTF-8');
 
-    // Stack Overflow source: https://stackoverflow.com/q/71457319
+    $playlistsTests = [
+        ['part=snippet&id=PL8wZFyWE1ZaI2HE7PYHvpx0_yv4oJjwAZ', 'items/0/snippet/title', '4,000 times the same video'],
+        ['part=statistics&id=PL8wZFyWE1ZaI2HE7PYHvpx0_yv4oJjwAZ', 'items/0/statistics', ['videoCount' => 4_000]],
+    ];
 
     include_once 'common.php';
 
-    $realOptions = ['snippet', 'statistics'];
+    $realOptions = [
+        'snippet',
+        'statistics',
+    ];
 
     // really necessary ?
     foreach ($realOptions as $realOption) {
@@ -24,24 +30,22 @@
             }
         }
         $ids = $_GET['id'];
-        $realIds = str_contains($ids, ',') ? explode(',', $ids, 50) : [$ids];
-        if (count($realIds) == 0) {
-            dieWithJsonMessage('Invalid id');
-        }
+        $realIds = explode(',', $ids);
+        verifyMultipleIds($realIds);
         foreach ($realIds as $realId) {
             if (!isPlaylistId($realId)) {
                 dieWithJsonMessage('Invalid id');
             }
         }
         echo getAPI($realIds);
-    } else {
+    } else if(!test()) {
         dieWithJsonMessage('Required parameters not provided');
     }
 
     function getItem($id)
     {
         global $options;
-        $result = getJSONFromHTMLForcingLanguage("https://www.youtube.com/playlist?list=$id");
+        $result = getJSONFromHTML("https://www.youtube.com/playlist?list=$id", forceLanguage: true);
 
         $item = [
             'kind' => 'youtube#playlist',

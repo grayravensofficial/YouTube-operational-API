@@ -1,6 +1,5 @@
 <?php
 
-    include_once 'compatibility.php';
     include_once 'constants.php';
 
     ini_set('display_errors', 0);
@@ -11,18 +10,19 @@
         {
             if($_GET['instanceKey'] !== RESTRICT_USAGE_TO_KEY)
             {
-                die("The provided `instanceKey` isn't correct!");
+                die("The provided <code>instanceKey</code> isn't correct!");
             }
         }
         else
         {
-            die('This instance requires that you provide the appropriate `instanceKey` parameter!');
+            die('This instance requires that you provide the appropriate <code>instanceKey</code> parameter!');
         }
     }
 
     function getContextFromOpts($opts)
     {
         if (GOOGLE_ABUSE_EXEMPTION !== '') {
+            // Can maybe leverage an approach like [issues/321](https://github.com/Benjamin-Loison/YouTube-operational-API/issues/321).
             $cookieToAdd = 'GOOGLE_ABUSE_EXEMPTION=' . GOOGLE_ABUSE_EXEMPTION;
             // Can't we simplify the following code?
             if (array_key_exists('http', $opts)) {
@@ -64,6 +64,21 @@
 
     function fileGetContentsAndHeadersFromOpts($url, $opts)
     {
+        if(HTTPS_PROXY_ADDRESS !== '')
+        {
+            if(!array_key_exists('http', $opts))
+            {
+                $opts['http'] = [];
+            }
+            $opts['http']['proxy'] = 'tcp://' . HTTPS_PROXY_ADDRESS . ':' . HTTPS_PROXY_PORT;
+            $opts['http']['request_fulluri'] = true;
+            if(HTTPS_PROXY_USERNAME !== '')
+            {
+                $headers = getValue($opts['http'], 'header', $defaultValue = []);
+                array_push($headers, 'Proxy-Authorization: Basic ' . base64_encode(HTTPS_PROXY_USERNAME . ':' . HTTPS_PROXY_PASSWORD));
+                $opts['http']['header'] = $headers;
+            }
+        }
         $context = getContextFromOpts($opts);
         $result = file_get_contents($url, false, $context);
         return [$result, $http_response_header];
@@ -140,6 +155,15 @@
 
     function getJSONFromHTML($url, $opts = [], $scriptVariable = '', $prefix = 'var ', $forceLanguage = false, $verifiesChannelRedirection = false)
     {
+        if($forceLanguage) {
+            $HEADER = 'Accept-Language: en';
+            if(!doesPathExist($opts, 'http/header')) {
+                $opts['http']['header'] = [$HEADER];
+            } else {
+                array_push($opts['http']['header'], $HEADER);
+            }
+        }
+
         $html = getRemote($url, $opts);
         $jsonStr = getJSONStringFromHTML($html, $scriptVariable, $prefix);
         $json = json_decode($jsonStr, true);
@@ -149,22 +173,12 @@
             if(doesPathExist($json, $redirectedToChannelIdPath))
             {
                 $redirectedToChannelId = getValue($json, $redirectedToChannelIdPath);
-                $url = preg_replace('/[a-zA-Z0-9-_]{24}/', $redirectedToChannelId, $url);
+                $url = preg_replace('/[\w\-_]{24}/', $redirectedToChannelId, $url);
                 // Does a redirection of redirection for a channel exist?
                 return getJSONFromHTML($url, $opts, $scriptVariable, $prefix, $forceLanguage, $verifiesChannelRedirection);
             }
         }
         return $json;
-    }
-
-    function getJSONFromHTMLForcingLanguage($url, $verifiesChannelRedirection = false)
-    {
-        $opts = [
-            'http' => [
-                'header' => ['Accept-Language: en']
-            ]
-        ];
-        return getJSONFromHTML($url, $opts, '', 'var ', false, $verifiesChannelRedirection);
     }
 
     function checkRegex($regex, $str)
@@ -174,47 +188,49 @@
 
     function isContinuationToken($continuationToken)
     {
-        return checkRegex('[A-Za-z0-9=\-_]+', $continuationToken);
+        return checkRegex('[\w=\-_]+', $continuationToken);
     }
 
     function isContinuationTokenAndVisitorData($continuationTokenAndVisitorData)
     {
-        return checkRegex('[A-Za-z0-9=]+,[A-Za-z0-9=\-_]+', $continuationTokenAndVisitorData);
+        return checkRegex('[\w=_]+,[\w=\-_]*', $continuationTokenAndVisitorData);
     }
 
     function isPlaylistId($playlistId)
     {
-        return checkRegex('[a-zA-Z0-9-_]+', $playlistId);
+        return checkRegex('[\w\-_]+', $playlistId);
     }
 
+    // What's the minimal length ?
+    // Are there forbidden characters?
     function isCId($cId)
     {
-        return checkRegex('[a-zA-Z0-9]+', $cId);
+        return true;
     }
 
     function isUsername($username)
     {
-        return checkRegex('[a-zA-Z0-9]+', $username);
+        return checkRegex('\w+', $username);
     }
 
     function isChannelId($channelId)
     {
-        return checkRegex('UC[a-zA-Z0-9-_]{22}', $channelId);
+        return checkRegex('UC[\w\-_]{22}', $channelId);
     }
 
     function isVideoId($videoId)
     {
-        return checkRegex('[a-zA-Z0-9-_]{11}', $videoId);
+        return checkRegex('[\w\-_]{11}', $videoId);
     }
 
     function isHashtag($hashtag)
     {
-        return true; // checkRegex('[a-zA-Z0-9_]+', $hashtag); // 'é' is a valid hashtag for instance
+        return true; // checkRegex('[\w_]+', $hashtag); // 'é' is a valid hashtag for instance
     }
 
     function isSAPISIDHASH($SAPISIDHASH)
     {
-        return checkRegex('[1-9][0-9]{9}_[a-f0-9]{40}', $SAPISIDHASH);
+        return checkRegex('[1-9]\d{9}_[a-f\d]{40}', $SAPISIDHASH);
     }
 
     function isQuery($q)
@@ -224,7 +240,7 @@
 
     function isClipId($clipId)
     {
-        return checkRegex('Ug[a-zA-Z0-9-_]{34}', $clipId);
+        return checkRegex('Ug[\w\-_]{34}', $clipId);
     }
 
     function isEventType($eventType)
@@ -239,26 +255,30 @@
 
     function isYouTubeDataAPIV3Key($youtubeDataAPIV3Key)
     {
-        return checkRegex('AIzaSy[A-D][a-zA-Z0-9-_]{32}', $youtubeDataAPIV3Key);
+        return checkRegex('AIzaSy[A-D][\w\-_]{32}', $youtubeDataAPIV3Key);
     }
 
     function isHandle($handle)
     {
-        return checkRegex('@[a-zA-Z0-9-_.]{3,}', $handle);
+        return checkRegex('@[\w\-_.]{3,}', $handle);
     }
 
     function isPostId($postId)
     {
-        return (checkRegex('Ug[w-z][a-zA-Z0-9-_]{16}4AaABCQ', $postId) || checkRegex('Ugkx[a-zA-Z0-9-_]{32}', $postId));
+        return (checkRegex('Ug[w-z][\w\-_]{16}4AaABCQ', $postId) || checkRegex('Ugkx[\w\-_]{32}', $postId));
     }
 
     function isCommentId($commentId)
     {
-        return checkRegex('Ug[w-z][a-zA-Z0-9-_]{16}4AaABAg', $commentId);
+        return checkRegex('Ug[w-z][\w\-_]{16}4AaABAg(|.[\w\-]{22})', $commentId);
     }
 
+    // Assume `$path !== ''`.
     function doesPathExist($json, $path)
     {
+        if ($json === null) {
+            return false;
+        }
         $parts = explode('/', $path);
         $partsCount = count($parts);
         if ($partsCount == 1) {
@@ -267,15 +287,20 @@
         return array_key_exists($parts[0], $json) && doesPathExist($json[$parts[0]], join('/', array_slice($parts, 1, $partsCount - 1)));
     }
 
-    // assume path checked before
-    function getValue($json, $path)
+    function getValue($json, $path, $defaultPath = null, $defaultValue = null)
     {
+        // Alternatively could make a distinct return for `getValue` depending on path found or not to avoid `null` ambiguity.
+        if(!doesPathExist($json, $path))
+        {
+            return $defaultPath !== null ? getValue($json, $defaultPath) : $defaultValue;
+        }
         $parts = explode('/', $path);
         $partsCount = count($parts);
         if ($partsCount == 1) {
             return $json[$path];
         }
-        return getValue($json[$parts[0]], join('/', array_slice($parts, 1, $partsCount - 1)));
+        $value = getValue($json[$parts[0]], join('/', array_slice($parts, 1, $partsCount - 1)));
+        return $value;
     }
 
     function getIntValue($unitCount, $unit = '')
@@ -289,7 +314,7 @@
         $unitCount = str_replace('K', '*1_000', $unitCount);
         $unitCount = str_replace('M', '*1_000_000', $unitCount);
         $unitCount = str_replace('B', '*1_000_000_000', $unitCount);
-        if(checkRegex('[0-9_.*KMB]+', $unitCount)) {
+        if(checkRegex('[\d_.*KMB]+', $unitCount)) {
             $unitCount = eval("return round($unitCount);");
         }
         return intval($unitCount);
@@ -298,14 +323,14 @@
     function getCommunityPostFromContent($content)
     {
         $backstagePost = $content['backstagePostThreadRenderer']['post']; // for posts that are shared from other channels
-        $common = array_key_exists('backstagePostRenderer', $backstagePost) ? $backstagePost['backstagePostRenderer'] : $backstagePost['sharedPostRenderer'];
+        $common = getValue($backstagePost, 'backstagePostRenderer', 'sharedPostRenderer');
 
         $id = $common['postId'];
         $channelId = $common['publishedTimeText']['runs'][0]['navigationEndpoint']['browseEndpoint']['browseId'];
 
         // Except for `Image`, all other posts require text.
         $contentText = [];
-        $textContent = array_key_exists('contentText', $common) ? $common['contentText'] : $common['content']; // sharedPosts have the same content just in slightly different positioning
+        $textContent = getValue($common, 'contentText', 'content'); // sharedPosts have the same content just in slightly different positioning
         foreach ($textContent['runs'] as $textCommon) {
             $contentTextItem = ['text' => $textCommon['text']];
             if (array_key_exists('navigationEndpoint', $textCommon)) {
@@ -315,11 +340,7 @@
                     $contentTextItem['url'] = $text;
                 } else {
                     $navigationEndpoint = $textCommon['navigationEndpoint'];
-                    if (array_key_exists('commandMetadata', $navigationEndpoint)) {
-                        $url = $navigationEndpoint['commandMetadata']['webCommandMetadata']['url'];
-                    } else {
-                        $url = $navigationEndpoint['browseEndpoint']['canonicalBaseUrl'];
-                    }
+                    $url = getValue($navigationEndpoint, 'commandMetadata/webCommandMetadata/url', 'browseEndpoint/canonicalBaseUrl');
                     $contentTextItem['url'] = "https://www.youtube.com$url";
                 }
             }
@@ -340,12 +361,12 @@
             }
         }
 
-        $videoId = array_key_exists('videoRenderer', $backstageAttachment) ? $backstageAttachment['videoRenderer']['videoId'] : null;
+        $videoId = getValue($backstageAttachment, 'videoRenderer/videoId');
         $date = $common['publishedTimeText']['runs'][0]['text'];
         $edited = str_ends_with($date, ' (edited)');
         $date = str_replace(' (edited)', '', $date);
         $date = str_replace('shared ', '', $date);
-        $sharedPostId = array_key_exists('originalPost', $common) ? $common['originalPost']['backstagePostRenderer']['postId'] : null;
+        $sharedPostId = getValue($common, 'originalPost/backstagePostRenderer/postId');
 
         $poll = null;
         if (array_key_exists('pollRenderer', $backstageAttachment)) {
@@ -354,6 +375,7 @@
             foreach ($pollRenderer['choices'] as $choice) {
                 $returnedChoice = $choice['text']['runs'][0];
                 $returnedChoice['image'] = $choice['image'];
+                $returnedChoice['voteRatio'] = $choice['voteRatioIfNotSelected'];
                 array_push($choices, $returnedChoice);
             }
             $totalVotesStr = $pollRenderer['totalVotes']['simpleText'];
@@ -365,7 +387,7 @@
             ];
         }
 
-        $likes = getIntValue(array_key_exists('voteCount', $common) ? $common['voteCount']['simpleText'] : 0);
+        $likes = getIntValue(getValue($common, 'voteCount/simpleText', defaultValue : 0));
 
         // Retrieving comments when using `community?part=snippet` requires another HTTPS request to `browse` YouTube UI endpoint.
         // sharedPosts do not have 'actionButtons' so this next line will end up defaulting to 0 $comments
@@ -375,6 +397,9 @@
         $post = [
             'id' => $id,
             'channelId' => $channelId,
+            'channelName' => $common['authorText']['runs'][0]['text'],
+            'channelHandle' => substr($common['authorEndpoint']['browseEndpoint']['canonicalBaseUrl'], 1),
+            'channelThumbnails' => $common['authorThumbnail']['thumbnails'],
             'date' => $date,
             'contentText' => $contentText,
             'likes' => $likes,
@@ -431,12 +456,145 @@
         return ($isNegative ? -1 : 1) * $timeInt;
     }
 
+    function getFirstNodeContainingPath($nodes, $path) {
+        return array_values(array_filter($nodes, fn($node) => doesPathExist($node, $path)))[0];
+    }
+
     function getTabByName($result, $tabName) {
         if (array_key_exists('contents', $result)) {
-            return array_values(array_filter($result['contents']['twoColumnBrowseResultsRenderer']['tabs'], fn($tab) => (array_key_exists('tabRenderer', $tab) && $tab['tabRenderer']['title'] === $tabName)))[0];
+            return array_values(array_filter(getTabs($result), fn($tab) => (getValue($tab, 'tabRenderer/title') === $tabName)))[0];
         } else {
             return null;
         }
+    }
+
+    function getPublishedAt($publishedAtRaw) {
+        $publishedAtStr = str_replace('ago', '', $publishedAtRaw);
+        $publishedAtStr = str_replace('seconds', '* 1 +', $publishedAtStr);
+        $publishedAtStr = str_replace('second', '* 1 +', $publishedAtStr);
+        $publishedAtStr = str_replace('minutes', '* 60 +', $publishedAtStr);
+        $publishedAtStr = str_replace('minute', '* 60 +', $publishedAtStr);
+        $publishedAtStr = str_replace('hours', '* 3600 +', $publishedAtStr);
+        $publishedAtStr = str_replace('hour', '* 3600 +', $publishedAtStr);
+        $publishedAtStr = str_replace('days', '* 86400 +', $publishedAtStr);
+        $publishedAtStr = str_replace('day', '* 86400 +', $publishedAtStr);
+        $publishedAtStr = str_replace('weeks', '* 604800 +', $publishedAtStr);
+        $publishedAtStr = str_replace('week', '* 604800 +', $publishedAtStr);
+        $publishedAtStr = str_replace('months', '* 2592000 +', $publishedAtStr); // not sure
+        $publishedAtStr = str_replace('month', '* 2592000 +', $publishedAtStr);
+        $publishedAtStr = str_replace('years', '* 31104000 +', $publishedAtStr); // not sure
+        $publishedAtStr = str_replace('year', '* 31104000 +', $publishedAtStr);
+        // To remove last ` +`.
+        $publishedAtStr = substr($publishedAtStr, 0, strlen($publishedAtStr) - 2);
+        $publishedAtStr = str_replace(' ', '', $publishedAtStr); // "security"
+        $publishedAtStr = str_replace(',', '', $publishedAtStr);
+        $publishedAtStrLen = strlen($publishedAtStr);
+        // "security"
+        for ($publishedAtStrIndex = $publishedAtStrLen - 1; $publishedAtStrIndex >= 0; $publishedAtStrIndex--) {
+            $publishedAtChar = $publishedAtStr[$publishedAtStrIndex];
+            if (!str_contains('+*0123456789', $publishedAtChar)) {
+                $publishedAtStr = substr($publishedAtStr, $publishedAtStrIndex + 1, $publishedAtStrLen - $publishedAtStrIndex - 1);
+                break;
+            }
+        }
+        $publishedAt = time() - eval("return $publishedAtStr;");
+        // the time is not perfectly accurate this way
+        return $publishedAt;
+    }
+
+    function test()
+    {
+        global $test;
+        return isset($test);
+    }
+
+    function getContinuationItems($result)
+    {
+        return $result['onResponseReceivedActions'][0]['appendContinuationItemsAction']['continuationItems'];
+    }
+
+    function getTabs($result)
+    {
+        return $result['contents']['twoColumnBrowseResultsRenderer']['tabs'];
+    }
+
+    function getContinuationJson($continuationToken)
+    {
+        $containsVisitorData = str_contains($continuationToken, ',');
+        if($containsVisitorData)
+        {
+            $continuationTokenParts = explode(',', $continuationToken);
+            $continuationToken = $continuationTokenParts[0];
+        }
+        $rawData = [
+            'context' => [
+                'client' => [
+                    'clientName' => 'WEB',
+                    'clientVersion' => MUSIC_VERSION
+                ]
+            ],
+            'continuation' => $continuationToken
+        ];
+        if($containsVisitorData)
+        {
+            $rawData['context']['client']['visitorData'] = $continuationTokenParts[1];
+        }
+        $http = [
+            'header' => [
+                'Content-Type: application/json'
+            ],
+            'method' => 'POST',
+            'content' => json_encode($rawData)
+        ];
+
+        $httpOptions = [
+            'http' => $http
+        ];
+
+        $result = getJSON('https://www.youtube.com/youtubei/v1/browse?key=' . UI_KEY, $httpOptions);
+        return $result;
+    }
+
+    function verifyMultipleIdsConfiguration($realIds, $field) {
+        if (count($realIds) >= 2 && !MULTIPLE_IDS_ENABLED) {
+            dieWithJsonMessage("Multiple {$field}s are disabled on this instance");
+        }
+    }
+
+    function verifyTooManyIds($realIds, $field) {
+        if (count($realIds) > 50) {
+            dieWithJsonMessage("Too many $field");
+        }
+    }
+
+    function verifyMultipleIds($realIds, $field = 'id') {
+        verifyMultipleIdsConfiguration($realIds, $field);
+        verifyTooManyIds($realIds, $field);
+    }
+
+    function getMultipleIds($field) {
+        $realIdsString = $_GET[$field];
+        $realIds = explode(',', $realIdsString);
+        verifyMultipleIds($realIds);
+        return $realIds;
+    }
+
+    function includeOnceProto($proto) {
+        $COMMON_PATH = 'proto/php';
+        include_once "$COMMON_PATH/$proto.php";
+        include_once "$COMMON_PATH/GPBMetadata/$proto.php";
+    }
+
+    function includeOnceProtos($protos) {
+        require_once __DIR__ . '/vendor/autoload.php';
+        foreach($protos as $proto) {
+            includeOnceProto($proto);
+        }
+    }
+
+    // Source: https://www.php.net/manual/en/function.base64-encode.php#103849
+    function base64url_encode($data) {
+        return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
     }
 
 ?>
